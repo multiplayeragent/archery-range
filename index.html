@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Archery Range</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #9ed4f2; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 4px #0009; font-weight: 800; }
+  #round { top: max(12px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); font-size: 22px; line-height: 1.15; }
+  #round small { display: block; font-size: 14px; font-weight: 700; opacity: .92; }
+  #round.mine small { color: #ffe14d; opacity: 1; }
+  #wind { top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); font-size: 15px; text-align: center; white-space: nowrap; }
+  @media (max-width: 640px) { #wind { top: calc(max(12px, env(safe-area-inset-top)) + 52px); left: max(16px, env(safe-area-inset-left)); transform: none; text-align: left; } #wind br { display: none; } }
+  #wind b { display: inline-block; font-size: 26px; line-height: 1; transition: transform .3s; color: #bdf4ff; }
+  #mini { top: max(12px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); font-size: 13px; min-width: 130px; }
+  #mini div { display: flex; justify-content: space-between; gap: 12px; } #mini .me { color: #ffe14d; } #mini .up span:first-child { text-decoration: underline; }
+  #mini i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  #net { bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .9; white-space: nowrap; }
+  #hint { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 26px); left: 0; right: 0; text-align: center; font-size: 17px; padding: 0 16px; }
+  #msg { top: 24%; left: 0; right: 0; text-align: center; font-size: 50px; color: #ffe14d; -webkit-text-stroke: 1.5px #5a3b00; transition: opacity .3s, transform .3s; opacity: 0; transform: scale(.75); }
+  #msg.on { opacity: 1; transform: scale(1); } #msg small { display: block; font-size: 22px; -webkit-text-stroke: 0; color: #fff; }
+  #cross { position: fixed; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #0006, inset 0 0 0 2px #0006; pointer-events: none; display: none; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: currentColor; left: 50%; top: 50%; }
+  #cross::before { width: 2px; height: 46px; margin: -23px 0 0 -1px; } #cross::after { width: 46px; height: 2px; margin: -1px 0 0 -23px; }
+  #vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 50%, transparent 38vmin, #000a 60vmin); opacity: 0; transition: opacity .25s; }
+  #vignette.on { opacity: 1; }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #0a2a1a55; }
+  #over[hidden] { display: none; }
+  .card { width: min(440px, 92vw); max-height: 86vh; overflow: auto; padding: 18px; border-radius: 16px; background: #183a2cf2; border: 1px solid #ffffff2a; box-sizing: border-box; }
+  .card h2 { margin: 0 0 10px; font-size: 24px; }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ffe14d; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 3px; text-align: center; } th { color: #a8dcbc; font-weight: 700; }
+  td:first-child, th:first-child { text-align: left; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.tot { font-weight: 800; color: #ffe14d; } tr.me td { color: #ffe14d; font-weight: 700; }
+  td i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; } .card li span { float: right; }
+  .card p { margin: 12px 0 0; font-size: 13px; opacity: .8; }
+  button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: #ffe14d; color: #2a1d00; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+<script type="importmap">{ "imports": { "three": "./libs/three.module.min.js" } }</script>
+</head>
+<body>
+<div id="vignette"></div>
+<div id="cross"></div>
+<div class="hud" id="round"></div>
+<div class="hud" id="wind"></div>
+<div class="hud" id="mini"></div>
+<div class="hud" id="hint"></div>
+<div class="hud" id="msg"></div>
+<div class="hud" id="net">Connecting…</div>
+<div id="over" hidden><div class="card">
+  <h2 id="overTitle">Final scores</h2>
+  <table id="table"></table>
+  <h3>Best totals</h3><ol id="board"><li>Loading…</li></ol>
+  <p id="next"></p>
+  <button class="go" id="again">Play again</button>
+</div></div>
+<script type="module">
+/* ═══ ARCHERY RANGE · a Multiplayer Agent starter ═════════════════════════════════════════
+ * Take turns shooting at one target. The wind changes every arrow and the target moves
+ * further back every round. Turn-based, 2–6 players; bots take the empty places.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ rounds and distances, wind, sway, the target, timings, bots
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   SCORING ....... rings, totals, whose turn it is
+ *   FLIGHT ........ where an arrow is at any moment: aim point, gravity, the wind's push
+ *   RANGE ......... renderer, sky, grass, distance lines, trees, flags, the target
+ *   ARCHERS ....... the archer and arrow models
+ *   GAME (HOST) ... turns, checking and scoring shots, wind, rounds, bots, results.
+ *                   Only the host writes the shared `game` field.
+ *   MY TURN ....... drawing the bow, aiming, sway, letting go
+ *   HUD & RESULTS . round, wind, standings, crosshair, results card, leaderboard
+ *   INPUT / LOOP .. pointer and keys, the cameras, the main loop
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - The whole match lives in ONE shared field, `game`: {id, v, phase, round, seats, hits,
+ *     shot, shotN, wind, turnAt, endsAt}. `seats` holds each archer's id, name, color, arrow
+ *     scores and bullseye count; `hits` the arrows in the target this round. Only the HOST
+ *     writes it, and `v` goes up on every write.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. A new host carries on from `game`.
+ *   - The archer whose turn it is sends the intent "shoot" {g, n, x, y}: the point on the
+ *     target it aimed at. The host checks the turn, adds the wind's push, scores the hit and
+ *     writes `game.shot`. Every client then flies that arrow on the same path, so everyone
+ *     watches it land. After a moment the host files it and the next archer is up.
+ *   - Each player writes its OWN entity: `n`/`c` (name, color), `hb` (heartbeat) and, while
+ *     it draws, `a` (its crosshair, ~12 times a second) so the others watch it aim.
+ *   - A place whose player is gone for 10s goes to a bot (it keeps the score); someone who
+ *     joins takes a bot's place, or a new one in round 1, or watches.
+ *   - Intent "again" {} from the results card asks the host to start a new match now.
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "archery-total": each player's best total, shown on the results card.
+ */
+import * as THREE from "three";
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 3,              // bots fill the line up to this many archers
+  maxSeats: 6,           // the most archers in one match
+  distances: [18, 30, 42, 55, 70], // metres to the target, one per round
+  arrowsPerRound: 3,     // arrows each archer shoots per round (one per turn, taking turns)
+  windMax: [2, 3, 4, 5, 6], // strongest wind per round, m/s
+  windPush: 0.2,         // sideways push per m/s of wind, m/s²
+  arrowSpeed: 50,        // m/s
+  minFlight: 0.8,        // short flights are shown in slow motion so they last at least this long, s
+  sway: 0.06, swayPerM: 0.0035, // how far the aim wobbles: base + per metre of distance
+  aimFeel: 0.6,          // how far the crosshair moves for a drag (1 = follows the finger)
+  minDraw: 300,          // ms the bow must be drawn before it can shoot
+  targetR: 0.61,         // the target face's radius (ten rings)
+  targetY: 1.3,          // its centre's height
+  bossHalf: 0.75,        // the straw block behind it (a miss that hits it still sticks)
+  holdMs: 1700,          // ms the camera stays on the target after an arrow lands
+  turnMs: 25000,         // a player who doesn't shoot in this long gets a shot made for them
+  seatGraceMs: 10000,    // a seated player silent this long loses the place to a bot
+  resultsMs: 30000,      // results show this long, then a new match starts (Play again starts it at once)
+  botThinkMs: 2600,      // a bot waits this long before it shoots...
+  botDrawMs: 1700,       // ...drawing and aiming for the last part of it
+  botAim: 0.07, botAimPerM: 0.0028, // how far bots miss: base + per metre, metres
+  botWindErr: 0.3,       // bots misjudge the wind by up to this share
+  botNames: ["Robin", "Arrowhead", "Fletcher", "Bullseye Bo", "Quiver", "Longbow"],
+  board: "archery-total",
+};
+const COLORS = ["#ff4d6d", "#4dabff", "#ffd23f", "#52d273", "#c77dff", "#ff8c42", "#3de0d0", "#f5f5f5"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'archery-range',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+/** JSON from a state field, parsed once per distinct value (read-only: never mutate the result). */
+const jsonCache = new Map();
+function parse(v, fb) {
+  if (typeof v !== "string") return fb;
+  if (jsonCache.has(v)) return jsonCache.get(v);
+  let out = fb; try { out = JSON.parse(v); } catch {}
+  if (jsonCache.size > 200) jsonCache.clear();
+  jsonCache.set(v, out); return out;
+}
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+/** Still in the room and heard from within the grace time (a backgrounded phone keeps its place). */
+const stillHere = (id) => id === net.sessionId || (!!S.entities.players[id] && performance.now() - (seenHb.get(id)?.at ?? -1e9) < CONFIG.seatGraceMs);
+
+// ── SCORING ─────────────────────────────────────────────────────────────────────────
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+/** The ring a point on the face scores (10 in the middle, 1 at the edge, 0 off the face) and whether it's an X (the inner ten). */
+function ringAt(x, y) {
+  const r = Math.sqrt(x * x + y * y), R = CONFIG.targetR;
+  return { sc: r > R ? 0 : clamp(10 - Math.floor(r / (R / 10)), 1, 10), X: r <= R / 20 };
+}
+const total = (seat) => seat.sc.reduce((a, b) => a + b, 0);
+/** Arrows this archer has shot in the current round. */
+const shotThisRound = (g, s) => s.sc.length - g.round * CONFIG.arrowsPerRound;
+/** Whose turn: the archer with the fewest arrows this round, the first one on a tie. -1 = the round is over. */
+function currentSeat(g) {
+  let best = -1, fewest = CONFIG.arrowsPerRound;
+  g.seats.forEach((s, i) => { const n = shotThisRound(g, s); if (n < fewest) { fewest = n; best = i; } });
+  return best;
+}
+/** Standings: highest total first, then most Xs. */
+const ranked = (g) => g.seats.map((s, k) => ({ k, s, t: total(s) })).sort((a, b) => b.t - a.t || b.s.x - a.s.x);
+
+// ── FLIGHT ──────────────────────────────────────────────────────────────────────────
+// An arrow flies from the bow to the target in T seconds. Its path is a formula of time, so
+// every client draws the same flight: it would land on the aim point, but gravity lifts and
+// drops it on the way and the wind pushes it sideways the whole time.
+const G = 9.8, BOW = { x: 0, y: 1.45, z: 0 }; // where arrows leave the bow
+const distance = (g) => CONFIG.distances[Math.min(g.round, CONFIG.distances.length - 1)];
+const flightTime = (d) => d / CONFIG.arrowSpeed;
+/** How far the wind pushes an arrow sideways by the time it reaches the target. */
+const drift = (d, wind) => 0.5 * CONFIG.windPush * wind * flightTime(d) ** 2;
+/** The arrow at time t of a shot aimed at (ax, ay) on the face at distance d: position and direction. */
+function arrowAt(d, ax, ay, wind, t) {
+  const T = flightTime(d), aw = CONFIG.windPush * wind, ty = CONFIG.targetY + ay;
+  return {
+    x: BOW.x + ((ax - BOW.x) * t) / T + 0.5 * aw * t * t,
+    y: BOW.y + ((ty - BOW.y) * t) / T + 0.5 * G * t * (T - t),
+    z: -(d * t) / T,
+    dx: (ax - BOW.x) / T + aw * t, dy: (ty - BOW.y) / T + 0.5 * G * (T - 2 * t), dz: -d / T,
+  };
+}
+/** How long the flight is shown (short ones in slow motion). */
+const showTime = (d) => Math.max(flightTime(d), CONFIG.minFlight);
+/** The aim's wobble at time ms (it grows with distance). */
+function sway(d, ms, seed = 0) {
+  const a = CONFIG.sway + CONFIG.swayPerM * d, t = ms / 1000;
+  return { x: a * (Math.sin(t * 1.3 + seed) * 0.7 + Math.sin(t * 2.9 + seed * 2) * 0.3), y: a * (Math.sin(t * 1.7 + seed * 3) * 0.6 + Math.sin(t * 3.7 + seed) * 0.4) };
+}
+
+// ── RANGE ───────────────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const cv = renderer.domElement;
+const scene = new THREE.Scene();
+function canvasTex(w, h, paint, repeat) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+scene.background = canvasTex(4, 256, (c, w, h) => { const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#4b9fe0"); g.addColorStop(0.55, "#9ed4f2"); g.addColorStop(1, "#e6f4e0"); c.fillStyle = g; c.fillRect(0, 0, w, h); });
+scene.fog = new THREE.Fog("#cfe8ec", 70, 190);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
+scene.add(new THREE.HemisphereLight("#ffffff", "#4d7a3a", 1.3));
+const sun = new THREE.DirectionalLight("#fff4dc", 1.8);
+sun.position.set(-12, 25, 8); sun.target.position.set(0, 0, -35); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 90 }); scene.add(sun, sun.target);
+
+// Mowed grass in stripes, with a white line at every round's distance
+const grass = canvasTex(64, 64, (c) => { c.fillStyle = "#6cbf4e"; c.fillRect(0, 0, 64, 64); c.fillStyle = "#63b346"; c.fillRect(0, 0, 64, 32); }, true);
+grass.repeat.set(10, 26);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 220), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.position.z = -80; ground.receiveShadow = true; scene.add(ground);
+const lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
+const shootLine = new THREE.Mesh(new THREE.PlaneGeometry(14, 0.08).rotateX(-Math.PI / 2), lineMat); shootLine.position.y = 0.01; scene.add(shootLine);
+function textSprite(text, color = "#fff", w = 256, h = 96, font = "900 56px system-ui, sans-serif") {
+  const tex = canvasTex(w, h, (c) => { c.font = font; c.textAlign = "center"; c.textBaseline = "middle"; c.lineWidth = 8; c.strokeStyle = "#0008"; c.strokeText(text, w / 2, h / 2); c.fillStyle = color; c.fillText(text, w / 2, h / 2); });
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true })); return s;
+}
+for (const d of CONFIG.distances) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(10, 0.06).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55 }));
+  m.position.set(0, 0.01, -d); scene.add(m);
+  const label = textSprite(`${d} m`); label.position.set(-5.6, 0.6, -d); label.scale.set(2.2, 0.82, 1); scene.add(label);
+}
+// Trees all around (the same for everyone: seeded), and hills
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const seeded = mulberry32(7), TREES = 140, mtx = new THREE.Matrix4();
+const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.2, 7, 8), new THREE.MeshStandardMaterial({ color: "#2f7a3a", flatShading: true }), TREES);
+const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.45, 2, 6), new THREE.MeshStandardMaterial({ color: "#7a4e2a" }), TREES);
+for (let i = 0; i < TREES; i++) {
+  const side = i % 3, s = 0.7 + seeded() * 0.9;
+  const x = side === 2 ? (seeded() - 0.5) * 90 : (side ? 1 : -1) * (16 + seeded() * 22), z = side === 2 ? -95 - seeded() * 30 : 10 - seeded() * 120;
+  mtx.compose(new THREE.Vector3(x, 1 + 3.5 * s, z), new THREE.Quaternion(), new THREE.Vector3(s, s, s)); trees.setMatrixAt(i, mtx);
+  mtx.compose(new THREE.Vector3(x, s, z), new THREE.Quaternion(), new THREE.Vector3(s, s, s)); trunks.setMatrixAt(i, mtx);
+}
+trees.castShadow = true; scene.add(trees, trunks);
+for (const [x, z, r] of [[-60, -160, 40], [30, -175, 50], [90, -140, 35]]) { const h = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12), new THREE.MeshStandardMaterial({ color: "#7fb862", roughness: 1 })); h.scale.y = 0.35; h.position.set(x, -2, z); scene.add(h); }
+// Wind flags on poles along the range: they stream the way the wind blows
+const flags = [];
+for (const [x, z] of [[-7, -12], [7, -28], [-7, -44], [7, -60]]) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 4, 6), new THREE.MeshStandardMaterial({ color: "#eeeeee" })); pole.position.set(x, 2, z); pole.castShadow = true; scene.add(pole);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.8, 6, 1).translate(0.7, 0, 0), new THREE.MeshStandardMaterial({ color: "#ff5a3c", side: THREE.DoubleSide }));
+  flag.position.set(x, 3.55, z); scene.add(flag); flags.push(flag);
+}
+// The target: a straw block on a wooden stand, the face with its rings
+const ringTex = canvasTex(512, 512, (c, w) => {
+  const cols = ["#f5f5f0", "#f5f5f0", "#222222", "#222222", "#2f8ee0", "#2f8ee0", "#e8392e", "#e8392e", "#ffd23f", "#ffd23f"];
+  for (let k = 0; k < 10; k++) { c.beginPath(); c.arc(w / 2, w / 2, (w / 2) * (1 - k / 10) - 1, 0, 7); c.fillStyle = cols[k]; c.fill(); c.lineWidth = 2; c.strokeStyle = k === 2 || k === 3 ? "#ffffff88" : "#0005"; c.stroke(); }
+  c.beginPath(); c.arc(w / 2, w / 2, w / 40, 0, 7); c.strokeStyle = "#0006"; c.stroke(); c.fillStyle = "#0006"; c.fillRect(w / 2 - 4, w / 2 - 1, 8, 2);
+});
+const target = new THREE.Group(); scene.add(target);
+const straw = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.bossHalf * 2, CONFIG.bossHalf * 2, 0.4), new THREE.MeshStandardMaterial({ roughness: 1, map: canvasTex(64, 64, (c) => { c.fillStyle = "#d9b45b"; c.fillRect(0, 0, 64, 64); c.strokeStyle = "#b8923e"; for (let k = 0; k < 40; k++) { c.beginPath(); c.moveTo((k * 37) % 64, (k * 13) % 64); c.lineTo(((k * 37) % 64) + 10, ((k * 13) % 64) + 3); c.stroke(); } }) }));
+straw.position.set(0, CONFIG.targetY, -0.2); straw.castShadow = true; target.add(straw);
+const face = new THREE.Mesh(new THREE.CircleGeometry(CONFIG.targetR, 64), new THREE.MeshStandardMaterial({ map: ringTex, roughness: 0.8 }));
+face.position.set(0, CONFIG.targetY, 0.005); target.add(face);
+const wood = new THREE.MeshStandardMaterial({ color: "#8a5a32" });
+for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.4, 0.1), wood); leg.position.set(s * 0.55, 1.0, -0.55); leg.rotation.x = -0.35; leg.castShadow = true; target.add(leg); }
+
+// ── ARCHERS ─────────────────────────────────────────────────────────────────────────
+const skin = new THREE.MeshStandardMaterial({ color: "#f1c9a5", roughness: 0.7 }), bowMat = new THREE.MeshStandardMaterial({ color: "#6b3d1e", roughness: 0.5 });
+/** An archer: body in its color, a head, a bow in the left hand, a name tag. */
+function makeArcher(color, name) {
+  const g = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.6, 4, 12), mat); body.position.y = 1.0; body.castShadow = true;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 16, 12), skin); head.position.y = 1.62; head.castShadow = true;
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.55, 0.24), new THREE.MeshStandardMaterial({ color: "#3b4a6b" })); legs.position.y = 0.3;
+  const arm = new THREE.Group(); arm.position.set(0.28, 1.35, 0); // the bow arm (left), raised toward the target to shoot
+  const armMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 8), mat); armMesh.position.y = -0.28; arm.add(armMesh);
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.025, 6, 20, Math.PI * 0.8), bowMat); bow.rotation.z = -Math.PI * 0.9; bow.position.set(0, 0.04, 0); arm.add(bow); // an arc bulging out past the hand
+  g.add(body, head, legs, arm);
+  if (name && !ATTRACT) { const tag = textSprite(name, "#fff", 256, 64, "bold 34px system-ui"); tag.position.y = 2.1; tag.scale.set(0.8, 0.2, 1); g.add(tag); }
+  g.userData = { arm, x: 0, z: 0, raise: 0 };
+  scene.add(g); return g;
+}
+/** An arrow: shaft, tip and three feathers in the archer's color. Its origin is the tip; it points along -z. */
+const shaftGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.8, 5).rotateX(Math.PI / 2).translate(0, 0, 0.4);
+const tipGeo = new THREE.ConeGeometry(0.014, 0.05, 6).rotateX(-Math.PI / 2);
+const featherGeo = new THREE.PlaneGeometry(0.035, 0.12).translate(0.02, 0, 0.72);
+const shaftMat = new THREE.MeshStandardMaterial({ color: "#e8dcc0" }), tipMat = new THREE.MeshStandardMaterial({ color: "#555", metalness: 0.7 });
+function makeArrow(color) {
+  const g = new THREE.Group(), fm = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide });
+  g.add(new THREE.Mesh(shaftGeo, shaftMat), new THREE.Mesh(tipGeo, tipMat));
+  for (let k = 0; k < 3; k++) { const f = new THREE.Mesh(featherGeo, fm); f.rotation.z = (k * Math.PI * 2) / 3; g.add(f); }
+  scene.add(g); return g;
+}
+const look = new THREE.Vector3(), q0 = new THREE.Quaternion(), FWD = new THREE.Vector3(0, 0, -1);
+/** Point an arrow (tip at x,y,z) along direction d. */
+function placeArrow(a, x, y, z, dx, dy, dz) { a.position.set(x, y, z); look.set(dx, dy, dz).normalize(); a.quaternion.setFromUnitVectors(FWD, look); }
+
+// Confetti for a bullseye: a pool of small cubes, reused.
+const CONF = 140, confetti = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), new THREE.MeshBasicMaterial({ color: "#fff" }), CONF);
+confetti.instanceMatrix.setUsage(THREE.DynamicDrawUsage); confetti.frustumCulled = false; scene.add(confetti);
+const bits = Array.from({ length: CONF }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }));
+for (let i = 0; i < CONF; i++) confetti.setColorAt(i, new THREE.Color("#fff"));
+let nextBit = 0;
+function burst(x, y, z, colors, n = 40) {
+  for (let k = 0; k < n; k++) {
+    const b = bits[nextBit], i = nextBit; nextBit = (nextBit + 1) % CONF;
+    const a = Math.random() * Math.PI * 2, s = 0.6 + Math.random() * 1.6;
+    Object.assign(b, { life: 1.2, x, y, z: z + 0.1, vx: Math.cos(a) * s, vy: Math.sin(a) * s + 1.5, vz: 0.5 + Math.random() });
+    confetti.setColorAt(i, new THREE.Color(colors[k % colors.length]));
+  }
+  confetti.instanceColor.needsUpdate = true;
+}
+const e0 = new THREE.Euler(), v0 = new THREE.Vector3(), s0 = new THREE.Vector3();
+function tickConfetti(dt) {
+  bits.forEach((b, i) => {
+    if (b.life > 0) { b.life -= dt; b.vy -= 5 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt; }
+    const s = b.life > 0 ? Math.min(1, b.life * 2) : 0;
+    mtx.compose(v0.set(b.x, b.y, b.z), q0.setFromEuler(e0.set(b.life * 9, b.life * 7, 0)), s0.set(s, s, s));
+    confetti.setMatrixAt(i, mtx);
+  });
+  confetti.instanceMatrix.needsUpdate = true;
+}
+// Sound: tiny WebAudio sounds, started by the first touch or click.
+let actx = null;
+function beep(freq, dur, type = "sine", vol = 0.15, slide = 0) {
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = freq;
+  if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, actx.currentTime + dur);
+  g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+  o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+}
+
+// ── GAME (HOST) ─────────────────────────────────────────────────────────────────────
+const host = { last: null, botTurn: "", botAim: null };
+/** The match as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function game() {
+  const g = parse(S.shared.game, null);
+  return host.last && isHost() && (!g || host.last.v > g.v) ? host.last : g;
+}
+function writeGame(g) { g = { ...g, v: (game()?.v ?? 0) + 1 }; host.last = g; net.setShared("game", JSON.stringify(g)); return g; }
+const playerName = (id) => (id === net.sessionId ? myName : String(S.entities.players[id]?.n ?? "Player"));
+const playerColor = (id) => (id === net.sessionId ? myColor : S.entities.players[id]?.c || "#ccc");
+const seatColor = (s) => (s.bot ? s.c : playerColor(s.id));
+/** A new gust for the next arrow: up to this round's strongest, blowing left or right. */
+const newWind = (round) => Math.round((Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.7) * CONFIG.windMax[Math.min(round, CONFIG.windMax.length - 1)] * 10) / 10;
+/** A bot for place k, with a name and color nobody is using. */
+function botSeat(k, seats, keep = {}) {
+  const usedN = new Set(seats.map((s) => s.n)), usedC = new Set(seats.map(seatColor));
+  return { sc: [], x: 0, ...keep, id: "bot" + k + Math.random().toString(36).slice(2, 5), bot: 1, n: CONFIG.botNames.find((n) => !usedN.has(n)) || "Bot", c: COLORS.find((c) => !usedC.has(c)) || "#ccc" };
+}
+function newMatch(id) {
+  const seats = (ATTRACT ? [] : livePlayers()).slice(0, CONFIG.maxSeats).map((pid) => ({ id: pid, n: playerName(pid), sc: [], x: 0 }));
+  while (seats.length < CONFIG.seats) seats.push(botSeat(seats.length, seats));
+  return writeGame({ id, phase: "play", round: ATTRACT ? 1 : 0, seats, hits: [], shot: null, shotN: 0, wind: newWind(ATTRACT ? 1 : 0), turnAt: Date.now(), endsAt: 0 });
+}
+/** Gone players lose their place to a bot; a waiting player takes a bot's place, or a new one in round 1. */
+function fixSeats(g) {
+  if (ATTRACT || g.phase !== "play") return g;
+  const seats = g.seats.map((s) => ({ ...s })), waiting = livePlayers().filter((id) => !seats.some((s) => s.id === id));
+  const flying = g.shot ? g.seats[g.shot.s].id : "";
+  let changed = false;
+  seats.forEach((s, k) => { if (!s.bot && !stillHere(s.id)) { Object.assign(s, botSeat(k, seats, { sc: s.sc, x: s.x })); changed = true; } });
+  for (const s of seats) if (s.bot && s.id !== flying && waiting.length) { const id = waiting.shift(); Object.assign(s, { id, bot: 0, n: playerName(id) }); delete s.c; changed = true; }
+  while (waiting.length && seats.length < CONFIG.maxSeats && g.round === 0) { const id = waiting.shift(); seats.push({ id, n: playerName(id), sc: [], x: 0 }); changed = true; }
+  for (const s of seats) if (!s.bot && s.n !== playerName(s.id)) { s.n = playerName(s.id); changed = true; }
+  return changed ? writeGame({ ...g, seats }) : g;
+}
+/** Score a shot aimed at (x, y) and send it flying (written to state; everyone draws the flight). */
+function startShot(g, k, x, y) {
+  x = clamp(+x || 0, -4, 4); y = clamp(+y || 0, -3, 3);
+  const d = distance(g), hx = Math.round((x + drift(d, g.wind)) * 1000) / 1000, hy = Math.round(y * 1000) / 1000, ring = ringAt(hx, hy);
+  const n = g.shotN + 1;
+  return writeGame({ ...g, shotN: n, shot: { n, s: k, x: Math.round(x * 1000) / 1000, y: hy, w: g.wind, hx, hy, sc: ring.sc, X: ring.X ? 1 : 0, at: Date.now() } });
+}
+/** The arrow has landed and been shown: file its score, then the next archer (or round, or the end). */
+function finishShot(g) {
+  const sh = g.shot, seats = g.seats.map((s, k) => (k === sh.s ? { ...s, sc: [...s.sc, sh.sc], x: s.x + sh.X } : s));
+  const inBoss = Math.abs(sh.hx) < CONFIG.bossHalf && Math.abs(sh.hy) < CONFIG.bossHalf;
+  let out = { ...g, seats, shot: null, hits: inBoss ? [...g.hits, [sh.s, sh.hx, sh.hy]] : g.hits, turnAt: Date.now() };
+  if (currentSeat(out) < 0) { // everyone has shot this round
+    if (out.round + 1 >= CONFIG.distances.length) out = { ...out, phase: "done", endsAt: Date.now() + CONFIG.resultsMs };
+    else out = { ...out, round: out.round + 1, hits: [] };
+  }
+  out.wind = newWind(out.round);
+  return writeGame(out);
+}
+/** Where a bot aims: against the wind (judged a bit wrong) and a little off. */
+function botAim(g) {
+  const d = distance(g), err = CONFIG.botAim + CONFIG.botAimPerM * d, gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.15;
+  return { x: -drift(d, g.wind) * (1 + (Math.random() * 2 - 1) * CONFIG.botWindErr) + gauss() * err, y: gauss() * err };
+}
+function hostTick() {
+  let g = game();
+  if (!g) g = newMatch(1);
+  g = fixSeats(g);
+  const t = Date.now();
+  if (g.phase === "done") { if (t > g.endsAt) newMatch(g.id + 1); return; }
+  if (g.shot) { if (t > g.shot.at + showTime(distance(g)) * 1000 + CONFIG.holdMs) finishShot(g); return; }
+  const k = currentSeat(g); if (k < 0) return;
+  const seat = g.seats[k], turnKey = `${g.id}:${g.shotN}`;
+  if (seat.bot ? t > g.turnAt + CONFIG.botThinkMs : t > g.turnAt + CONFIG.turnMs) { // bots, and players away too long
+    if (host.botTurn !== turnKey) { host.botTurn = turnKey; host.botAim = botAim(g); }
+    startShot(g, k, host.botAim.x, host.botAim.y);
+  }
+}
+/** A "shoot" intent (or the host's own shot): only from the archer whose turn it is, for this exact shot number. */
+function hostShoot(from, m) {
+  const g = game();
+  if (!g || g.phase !== "play" || g.shot || !m || m.g !== g.id || m.n !== g.shotN) return;
+  const k = currentSeat(g);
+  if (k >= 0 && g.seats[k].id === from) startShot(g, k, m.x, m.y);
+}
+
+// ── MY TURN ─────────────────────────────────────────────────────────────────────────
+const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() ||
+  ["Steady", "Eagle", "Sharp", "Swift", "Calm", "Keen"][Math.floor(Math.random() * 6)] + " " + ["Archer", "Shot", "Eye", "Bow", "Arrow"][Math.floor(Math.random() * 5)];
+let myColor = COLORS[0]; // picked on join: the first color nobody in the room has
+const me = { drawing: false, drawAt: 0, ax: 0, ay: 0, px: 0, py: 0, sent: "", lastSend: 0, shots: 0, submitted: -1, key: "", pointer: -1, fired: null }; // fired: my last shot until it shows up in state
+const mySeat = (g) => (g ? g.seats.findIndex((s) => s.id === net.sessionId) : -1);
+const myTurn = (g) => g && g.phase === "play" && !g.shot && currentSeat(g) >= 0 && currentSeat(g) === mySeat(g);
+/** My aim right now: where I've dragged it, plus the wobble. */
+function myAim(g) { const w = sway(distance(g), performance.now()); return { x: me.ax + w.x, y: me.ay + w.y }; }
+function startDraw(x, y) {
+  const g = game();
+  if (!myTurn(g) || me.drawing) return;
+  if (me.key !== `${g.id}:${g.shotN}`) { me.key = `${g.id}:${g.shotN}`; me.ax = 0; me.ay = 0; } // a new turn: aim starts in the middle
+  Object.assign(me, { drawing: true, drawAt: performance.now(), px: x, py: y });
+  beep(220, 0.35, "triangle", 0.05, 1.6);
+}
+function moveAim(x, y) {
+  if (!me.drawing) return;
+  const g = game(), perPx = (visibleHeight(distance(g)) / innerHeight) * CONFIG.aimFeel; // metres on the target per pixel dragged
+  me.ax = clamp(me.ax + (x - me.px) * perPx, -3, 3); me.ay = clamp(me.ay - (y - me.py) * perPx, -2.5, 2.5);
+  me.px = x; me.py = y;
+}
+function release() {
+  if (!me.drawing) return;
+  me.drawing = false;
+  const g = game();
+  if (!myTurn(g) || performance.now() - me.drawAt < CONFIG.minDraw) { publishAim(true); return; } // let go too early: nothing
+  const a = myAim(g); me.shots++; me.fired = { ...a, at: performance.now() };
+  beep(700, 0.12, "triangle", 0.12, 0.5);
+  if (isHost()) startShot(g, currentSeat(g), a.x, a.y);
+  else net.send("shoot", { g: g.id, n: g.shotN, x: Math.round(a.x * 1000) / 1000, y: Math.round(a.y * 1000) / 1000 });
+}
+/** My crosshair for the others, about 12 times a second while I draw. */
+function publishAim(force) {
+  const g = game(); if (!g) return;
+  const now = performance.now(); if (!force && now - me.lastSend < 80) return;
+  const a = myAim(g), v = JSON.stringify({ k: g.shotN, x: +a.x.toFixed(3), y: +a.y.toFixed(3), d: me.drawing ? 1 : 0 });
+  if (v === me.sent) return;
+  me.sent = v; me.lastSend = now; net.me.set("a", v);
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let toastTimer = 0;
+function toast(html, ms = 1500) { const m = $("msg"); m.innerHTML = html; m.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => m.classList.remove("on"), ms); }
+let board = null, boardFor = -1;
+/** Colors other players and the bots already use. */
+const takenColors = () => new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...((parse(S.shared.game, {}) || {}).seats || []).filter((s) => s.bot).map((s) => s.c)]);
+/** Two players with one color (both joined at once): the later sessionId picks again. */
+function fixColor() {
+  if (!Object.entries(S.entities.players || {}).some(([id, p]) => id < net.sessionId && p.c === myColor)) return;
+  const taken = takenColors();
+  myColor = COLORS.find((c) => !taken.has(c)) || myColor;
+  net.me.set("c", myColor);
+}
+function hud(g) {
+  fixColor();
+  if (ATTRACT) { for (const id of ["round", "wind", "mini", "net", "hint"]) $(id).textContent = ""; $("over").hidden = true; return; }
+  const k = currentSeat(g), seat = g.seats[k], mine = k >= 0 && k === mySeat(g), d = distance(g);
+  const left = Math.ceil((g.turnAt + CONFIG.turnMs - Date.now()) / 1000);
+  $("round").className = "hud" + (mine && !g.shot ? " mine" : "");
+  $("round").innerHTML = g.phase !== "play" ? "" : `Round ${g.round + 1}/${CONFIG.distances.length} · ${d} m<small> ${g.shot ? `${g.seats[g.shot.s].id === net.sessionId ? "You" : esc(g.seats[g.shot.s].n)} shot` : !seat ? "" : mine ? `Your turn · arrow ${shotThisRound(g, seat) + 1} of ${CONFIG.arrowsPerRound}${left <= 10 ? ` · shooting for you in ${Math.max(0, left)}s` : ""}` : `${esc(seat.n)} is up`}${mySeat(g) < 0 ? " · you're watching: you shoot next match" : ""}</small>`;
+  $("wind").innerHTML = g.phase !== "play" ? "" : `Wind<br><b style="transform:scaleX(${g.wind < 0 ? -1 : 1})">→</b> ${Math.abs(g.wind).toFixed(1)} m/s`;
+  $("mini").innerHTML = ranked(g).map((r) => `<div class="${r.s.id === net.sessionId ? "me" : ""} ${r.k === k ? "up" : ""}"><span><i style="background:${esc(seatColor(r.s))}"></i>${esc(r.s.id === net.sessionId ? "You" : r.s.n)}</span><span>${r.t}</span></div>`).join("");
+  $("hint").textContent = mine && !g.shot && me.shots < 2 ? (me.drawing ? "Drag to aim. Aim into the wind, then let go." : "Press and hold to draw the bow.") : "";
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the range" : ""}`;
+  $("over").hidden = g.phase !== "done";
+  if (g.phase === "done") showResults(g);
+}
+function showResults(g) {
+  const rows = ranked(g), top = rows[0], tie = rows.length > 1 && rows[1].t === top.t && rows[1].s.x === top.s.x;
+  $("overTitle").textContent = tie ? "It's a tie!" : top.s.id === net.sessionId ? "You win!" : `${top.s.n} wins!`;
+  const R = CONFIG.distances.length, A = CONFIG.arrowsPerRound;
+  $("table").innerHTML = `<tr><th>Archer</th>${CONFIG.distances.map((d) => `<th>${d}m</th>`).join("")}<th>X</th><th>Total</th></tr>` + rows.map((r) =>
+    `<tr class="${r.s.id === net.sessionId ? "me" : ""}"><td><i style="background:${esc(seatColor(r.s))}"></i>${esc(r.s.id === net.sessionId ? "You" : r.s.n)}</td>` +
+    Array.from({ length: R }, (_, i) => `<td>${r.s.sc.slice(i * A, i * A + A).reduce((a, b) => a + b, 0)}</td>`).join("") + `<td>${r.s.x}</td><td class="tot">${r.t}</td></tr>`).join("");
+  $("next").textContent = `New match in ${Math.max(0, Math.ceil((g.endsAt - Date.now()) / 1000))}s`;
+  if (boardFor !== g.id) { boardFor = g.id; showBoard(g); }
+}
+function showBoard(g) {
+  const list = $("board"), mine = g.seats.find((s) => s.id === net.sessionId);
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  const submit = mine && me.submitted !== g.id ? board.submit(total(mine)).catch(() => null) : Promise.resolve();
+  me.submitted = g.id;
+  list.innerHTML = "<li>Loading…</li>";
+  submit.then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li>No totals yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+$("again").onclick = () => { const g = game(); if (!g || g.phase !== "done") return; if (isHost()) newMatch(g.id + 1); else net.send("again", {}); };
+
+// ── INPUT / LOOP ────────────────────────────────────────────────────────────────────
+cv.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+  if (ATTRACT || me.drawing) return;
+  cv.setPointerCapture(e.pointerId); me.pointer = e.pointerId;
+  startDraw(e.clientX, e.clientY);
+});
+cv.addEventListener("pointermove", (e) => { if (e.pointerId === me.pointer) moveAim(e.clientX, e.clientY); });
+cv.addEventListener("pointerup", (e) => { if (e.pointerId === me.pointer) release(); });
+cv.addEventListener("pointercancel", () => { me.drawing = false; });
+addEventListener("keydown", (e) => { // Space draws, arrows aim, letting go of Space shoots
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); startDraw(me.px, me.py); }
+  const step = { ArrowLeft: [-12, 0], ArrowRight: [12, 0], ArrowUp: [0, -12], ArrowDown: [0, 12] }[e.key];
+  if (step && me.drawing) moveAim(me.px + step[0], me.py + step[1]);
+});
+addEventListener("keyup", (e) => { if (e.code === "Space") release(); });
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+// The cameras: over the line, through the scope while someone draws, chasing the arrow, at the target.
+const cam = { pos: new THREE.Vector3(3, 2.6, 6), look: new THREE.Vector3(0, 1.2, -20), fov: 40 };
+const want = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 40 };
+/** The scope's field of view: the target face fills a fair share of the screen at any distance. */
+const scopeFov = (d) => THREE.MathUtils.radToDeg(2 * Math.atan((CONFIG.targetR * 2) / (2 * (0.3 - d * 0.0022) * (d + 0.6))));
+const visibleHeight = (d) => 2 * (d + 0.6) * Math.tan(THREE.MathUtils.degToRad(scopeFov(d)) / 2);
+function fit() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+
+const archers = new Map(); // seat id -> archer model
+const stuck = [];          // arrows in the target this round
+let flying = null;         // the arrow in the air: { n, mesh, shot, start, landed }
+let last = performance.now(), lastHb = 0, lastHud = 0, roundShown = "", aimShown = { x: 0, y: 0 };
+const proj = new THREE.Vector3();
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be timed before load: never negative
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  if (isHost()) hostTick();
+  const g = game();
+  if (g) {
+    const d = distance(g), k = currentSeat(g), seat = g.seats[k];
+    target.position.z = -d;
+    if (roundShown !== `${g.id}:${g.round}`) { // a new round: the target moves back
+      roundShown = `${g.id}:${g.round}`; $("over").hidden = true;
+      if (!ATTRACT && g.phase === "play") toast(`Round ${g.round + 1}<small>${d} metres</small>`, 1800);
+    }
+    // the arrows stuck in the target (rebuilt when the list changes)
+    if (stuck.length !== g.hits.length || (stuck[0] && stuck[0].key !== `${g.id}:${g.round}`)) {
+      for (const a of stuck) scene.remove(a.mesh); stuck.length = 0;
+      for (const [s, x, y] of g.hits) { const m = makeArrow(g.seats[s] ? seatColor(g.seats[s]) : "#ccc"); const p = arrowAt(d, x, y, 0, flightTime(d)); placeArrow(m, x, CONFIG.targetY + y, -d - 0.06, p.dx, p.dy, p.dz); stuck.push({ mesh: m, key: `${g.id}:${g.round}` }); }
+    }
+    // the arrow in flight: drawn from the shot in state, the same path for everyone
+    if (g.shot) me.fired = null;
+    if (g.shot && (!flying || flying.n !== g.shot.n)) { if (flying) scene.remove(flying.mesh); flying = { n: g.shot.n, shot: g.shot, mesh: makeArrow(seatColor(g.seats[g.shot.s])), start: now, landed: false }; if (!ATTRACT) beep(900, 0.25, "sine", 0.05, 0.4); }
+    if (!g.shot && flying) { scene.remove(flying.mesh); flying = null; }
+    let flightT = -1;
+    if (flying) {
+      const sh = flying.shot, T = flightTime(d), hitFace = Math.abs(sh.hx) < CONFIG.bossHalf && Math.abs(sh.hy) < CONFIG.bossHalf;
+      const t = Math.min(hitFace ? T : T * 1.4, ((now - flying.start) / 1000) * (T / showTime(d))); // a miss flies on past the target
+      const p = arrowAt(d, sh.x, sh.y, sh.w, t);
+      placeArrow(flying.mesh, p.x, p.y, hitFace ? Math.max(p.z, -d - 0.06) : p.z, p.dx, p.dy, p.dz);
+      flying.mesh.visible = hitFace || t < T * 1.35;
+      flightT = Math.min(1, t / T);
+      if (t >= T && !flying.landed) {
+        flying.landed = true;
+        beep(sh.sc >= 9 ? 160 : 120, 0.12, "square", 0.12);
+        const label = sh.sc === 0 ? (hitFace ? "Miss" : "Missed the target") : sh.X ? "X · Bullseye!" : sh.sc === 10 ? "10 · Bullseye!" : String(sh.sc);
+        toast(`${label}<small>${esc(g.seats[sh.s].id === net.sessionId ? "You" : g.seats[sh.s].n)}</small>`, 1400);
+        if (sh.sc >= 10) { burst(sh.hx, CONFIG.targetY + sh.hy, -d, ["#ffd23f", "#ff4d6d", "#ffffff", "#4dabff"], 60); beep(1040, 0.3, "sine", 0.1, 1.5); }
+      }
+    }
+    // archers: whoever is up stands at the line; everyone else waits behind it
+    const ids = new Set(g.seats.map((s) => s.id));
+    for (const [id, a] of archers) if (!ids.has(id) || a.userData.color !== seatColor(g.seats.find((s) => s.id === id))) { scene.remove(a); archers.delete(id); }
+    let wait = 0;
+    const shooter = g.shot ? g.shot.s : k;
+    g.seats.forEach((s, i) => {
+      let a = archers.get(s.id);
+      if (!a) { a = makeArcher(seatColor(s), s.id === net.sessionId ? "" : s.n); a.userData.color = seatColor(s); archers.set(s.id, a); }
+      const up = i === shooter, u = a.userData, tx = up ? 0 : 1.5 + wait * 0.85, tz = up ? 0.75 : 1.9 + (wait % 2) * 0.35;
+      if (!up) wait++;
+      u.x += (tx - u.x) * Math.min(1, dt * 4); u.z += (tz - u.z) * Math.min(1, dt * 4);
+      const drawingNow = up && (isDrawing(g, s, now) || (flightT >= 0 && flightT < 0.4));
+      u.raise += ((drawingNow ? 1 : 0) - u.raise) * Math.min(1, dt * 8);
+      a.position.set(u.x, 0, u.z); a.rotation.y = up ? Math.PI / 2 : Math.PI; // the shooter stands side-on, left shoulder to the target
+      u.arm.rotation.z = u.raise * 1.55;
+      a.visible = !(up && camMode === "scope"); // in the scope you look over your own shoulder
+    });
+    // the wind flags stream the way the wind blows
+    flags.forEach((f, i) => { f.rotation.y = (g.wind < 0 ? Math.PI : 0) + Math.sin(now / 300 + i) * 0.12 * (1 + Math.abs(g.wind) * 0.2); f.rotation.x = Math.sin(now / 170 + i * 2) * 0.08 * Math.abs(g.wind); f.scale.y = 1 - 0.4 / (1 + Math.abs(g.wind)); });
+    // the crosshair (mine while I draw, the shooter's while they draw)
+    camMode = pickCamera(g, seat, d, now, flightT);
+    const cross = $("cross");
+    if (camMode === "scope" && seat) {
+      const a = seat.id !== net.sessionId ? otherAim(g, seat, d, now) : me.drawing ? myAim(g) : me.fired || myAim(g);
+      aimShown.x += (a.x - aimShown.x) * Math.min(1, dt * 12); aimShown.y += (a.y - aimShown.y) * Math.min(1, dt * 12);
+      proj.set(aimShown.x, CONFIG.targetY + aimShown.y, -d).project(camera);
+      cross.style.display = "block"; cross.style.color = cross.style.borderColor = seatColor(seat);
+      cross.style.transform = `translate(${((proj.x + 1) / 2) * innerWidth}px, ${((1 - proj.y) / 2) * innerHeight}px)`;
+    } else cross.style.display = "none";
+    $("vignette").classList.toggle("on", camMode === "scope");
+    if (me.drawing) publishAim(false);
+    if (now - lastHud > 120) { lastHud = now; hud(g); }
+  }
+  tickConfetti(dt);
+  const kk = camMode === "arrow" ? 1 : 1 - Math.pow(0.01, dt); // the arrow camera rides with the arrow; the rest glide
+  cam.pos.lerp(want.pos, kk); cam.look.lerp(want.look, kk); cam.fov += (want.fov - cam.fov) * kk;
+  camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.fov = cam.fov; camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+let camMode = "wide";
+/** Is this archer drawing right now? Me: my own state. Others: their published `a`. Bots: the last part of their think time. */
+function isDrawing(g, s, now) {
+  if (g.shot || g.phase !== "play") return false;
+  if (s.id === net.sessionId) return me.drawing || (!!me.fired && performance.now() - me.fired.at < 1500);
+  if (s.bot) return Date.now() > g.turnAt + CONFIG.botThinkMs - CONFIG.botDrawMs;
+  const a = parse(S.entities.players[s.id]?.a, null);
+  return !!(a && a.k === g.shotN && a.d);
+}
+/** Someone else's crosshair: what they published, or for a bot a steady drift into the wind. */
+function otherAim(g, s, d, now) {
+  if (s.bot) { const w = sway(d, now, 1.7), into = Math.min(1, (Date.now() - (g.turnAt + CONFIG.botThinkMs - CONFIG.botDrawMs)) / 1200); return { x: -drift(d, g.wind) * into + w.x, y: w.y }; }
+  const a = parse(S.entities.players[s.id]?.a, null);
+  return a && a.k === g.shotN ? a : { x: 0, y: 0 };
+}
+/** Choose the camera for this moment and set where it wants to be. */
+function pickCamera(g, seat, d, now, flightT) {
+  if (flying) {
+    const sh = flying.shot, p = arrowAt(d, sh.x, sh.y, sh.w, flightTime(d) * Math.min(1, flightT));
+    if (flightT < 1 && p.z > -d + 5) { // chase the arrow
+      want.pos.set(p.x + 0.14, p.y + 0.1, p.z + 0.85); want.look.set(p.x + p.dx * 0.06, p.y + p.dy * 0.06, p.z + p.dz * 0.06); want.fov = 50;
+      return "arrow";
+    }
+    want.pos.set(0.45, CONFIG.targetY + 0.3, -d + 4.2); want.look.set(sh.hx * 0.4, CONFIG.targetY + sh.hy * 0.4, -d); want.fov = 40;
+    return "target";
+  }
+  if (seat && g.phase === "play" && isDrawing(g, seat, now)) {
+    want.pos.set(0, 1.55, 0.6); want.look.set(0, CONFIG.targetY, -d); want.fov = scopeFov(d);
+    return "scope";
+  }
+  want.pos.set(0.6, 3.0, 8.2); want.look.set(0.2, 1.0, -Math.min(d, 24)); want.fov = camera.aspect < 1 ? 62 : 40; // behind the whole line
+  return "wide";
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("shoot", (m, from) => { if (isHost()) hostShoot(from, m); });
+  net.on("again", () => { const g = game(); if (isHost() && g && g.phase === "done") newMatch(g.id + 1); });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = takenColors();
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  if (ATTRACT) Object.assign(CONFIG, { seats: 4, botThinkMs: 1500, botDrawMs: 1050, holdMs: 1100, botAim: 0.03, botAimPerM: 0.001, botWindErr: 0.1 });
+  want.pos.copy(cam.pos); want.look.copy(cam.look);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

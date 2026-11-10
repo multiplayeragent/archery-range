@@ -1,0 +1,21 @@
+{
+  "name": "Archery Range",
+  "genre": "sports",
+  "dim": "3D",
+  "mode": "Turn-based",
+  "players": "2–6",
+  "hook": "Read the wind. Hit the gold. The target keeps moving back.",
+  "how": "Take turns shooting at one target, three arrows a round, while everyone watches through your sight. The wind changes every arrow and the target moves back every round, from 18 to 70 metres. Highest total wins.",
+  "controls": "Press and hold to draw, drag to aim, let go to shoot (mouse or finger); or hold Space and use the arrow keys",
+  "uses": [
+    ["Leaderboard", "Each player's best total, shown on the results card."],
+    ["Host-run rules", "The host's browser sets the wind, scores every arrow and runs the turns; if it leaves, the next player takes over."],
+    ["Bots", "Bots shoot in the empty places, and take over for anyone who leaves."],
+    ["Live sync", "Everyone watches each archer aim and follows every arrow to the target."]
+  ],
+  "ideas": [
+    "Add a moving target that slides left and right",
+    "Make it a medieval castle tournament with banners",
+    "Add a fire arrow you can use once per match for double points"
+  ]
+}
