@@ -578,6 +578,7 @@ let flying = null;         // the arrow in the air: { n, mesh, shot, start, land
 let last = performance.now(), lastHb = 0, lastHud = 0, roundShown = "", aimShown = { x: 0, y: 0 };
 const proj = new THREE.Vector3();
 function frame(now) {
+  requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be timed before load: never negative
   if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
   if (isHost()) hostTick();
@@ -652,7 +653,6 @@ function frame(now) {
   cam.pos.lerp(want.pos, kk); cam.look.lerp(want.look, kk); cam.fov += (want.fov - cam.fov) * kk;
   camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.fov = cam.fov; camera.updateProjectionMatrix();
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
 }
 let camMode = "wide";
 /** Is this archer drawing right now? Me: my own state. Others: their published `a`. Bots: the last part of their think time. */
