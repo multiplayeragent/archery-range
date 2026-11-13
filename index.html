@@ -38,6 +38,7 @@
   td.tot { font-weight: 800; color: #ffe14d; } tr.me td { color: #ffe14d; font-weight: 700; }
   td i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; } .card li span { float: right; }
+  .card li.note { list-style: none; margin-left: -24px; opacity: .8; } /* a message in place of a list: no "1." in front of it */
   .card p { margin: 12px 0 0; font-size: 13px; opacity: .8; }
   button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: #ffe14d; color: #2a1d00; font: 800 17px system-ui, sans-serif; cursor: pointer; }
 </style>
@@ -56,7 +57,7 @@
 <div id="over" hidden><div class="card">
   <h2 id="overTitle">Final scores</h2>
   <table id="table"></table>
-  <h3>Best totals</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Best totals</h3><ol id="board"><li class="note">Loading…</li></ol>
   <p id="next"></p>
   <button class="go" id="again">Play again</button>
 </div></div>
@@ -535,13 +536,13 @@ function showResults(g) {
 }
 function showBoard(g) {
   const list = $("board"), mine = g.seats.find((s) => s.id === net.sessionId);
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  if (!board) { list.innerHTML = `<li class="note">Leaderboards need a connection.</li>`; return; }
   const submit = mine && me.submitted !== g.id ? board.submit(total(mine)).catch(() => null) : Promise.resolve();
   me.submitted = g.id;
-  list.innerHTML = "<li>Loading…</li>";
+  list.innerHTML = `<li class="note">Loading…</li>`;
   submit.then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li>No totals yet. Be the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : `<li class="note">No totals yet. Be the first.</li>`;
+  }).catch(() => { list.innerHTML = `<li class="note">Couldn't load the leaderboard.</li>`; });
 }
 $("again").onclick = () => { const g = game(); if (!g || g.phase !== "done") return; if (isHost()) newMatch(g.id + 1); else net.send("again", {}); };
 
@@ -549,16 +550,21 @@ $("again").onclick = () => { const g = game(); if (!g || g.phase !== "done") ret
 cv.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
-  if (ATTRACT || me.drawing) return;
+  if (ATTRACT || me.drawing || (e.pointerType === "mouse" && e.button !== 0)) return;
   cv.setPointerCapture(e.pointerId); me.pointer = e.pointerId;
   startDraw(e.clientX, e.clientY);
 });
 cv.addEventListener("pointermove", (e) => { if (e.pointerId === me.pointer) moveAim(e.clientX, e.clientY); });
 cv.addEventListener("pointerup", (e) => { if (e.pointerId === me.pointer) release(); });
-cv.addEventListener("pointercancel", () => { me.drawing = false; });
+/** The draw ended without a shot (the browser took the touch, the tab lost focus): lower the bow, and tell the others. */
+function cancelDraw() { if (me.drawing) { me.drawing = false; publishAim(true); } }
+cv.addEventListener("pointercancel", cancelDraw);
+addEventListener("blur", cancelDraw);
+cv.addEventListener("contextmenu", (e) => e.preventDefault()); // a right-click doesn't open the browser menu over the game
 addEventListener("keydown", (e) => { // Space draws, arrows aim, letting go of Space shoots
-  if (e.code === "Space" && !e.repeat) { e.preventDefault(); startDraw(me.px, me.py); }
   const step = { ArrowLeft: [-12, 0], ArrowRight: [12, 0], ArrowUp: [0, -12], ArrowDown: [0, 12] }[e.key];
+  if ((e.code === "Space" || step) && e.target === document.body) e.preventDefault(); // no page scrolling (a held Space repeats)
+  if (e.code === "Space" && !e.repeat) startDraw(me.px, me.py);
   if (step && me.drawing) moveAim(me.px + step[0], me.py + step[1]);
 });
 addEventListener("keyup", (e) => { if (e.code === "Space") release(); });
