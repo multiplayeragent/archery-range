@@ -205,8 +205,10 @@ function currentSeat(g) {
   g.seats.forEach((s, i) => { const n = shotThisRound(g, s); if (n < fewest) { fewest = n; best = i; } });
   return best;
 }
-/** Standings: highest total first, then most Xs. */
-const ranked = (g) => g.seats.map((s, k) => ({ k, s, t: total(s) })).sort((a, b) => b.t - a.t || b.s.x - a.s.x);
+/** Tens shot (an X counts as a 10). */
+const tens = (seat) => seat.sc.filter((v) => v === 10).length;
+/** Standings: highest total first; a tie goes to the most 10s, then the most Xs (World Archery's tie rule). */
+const ranked = (g) => g.seats.map((s, k) => ({ k, s, t: total(s) })).sort((a, b) => b.t - a.t || tens(b.s) - tens(a.s) || b.s.x - a.s.x);
 
 // ── FLIGHT ──────────────────────────────────────────────────────────────────────────
 // An arrow flies from the bow to the target in T seconds. Its path is a formula of time, so
@@ -308,18 +310,25 @@ for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1,
 
 // ── ARCHERS ─────────────────────────────────────────────────────────────────────────
 const skin = new THREE.MeshStandardMaterial({ color: "#f1c9a5", roughness: 0.7 }), bowMat = new THREE.MeshStandardMaterial({ color: "#6b3d1e", roughness: 0.5 });
+const legsMat = new THREE.MeshStandardMaterial({ color: "#3b4a6b" });
+// one set of shapes shared by every archer (each archer only has its own color and name tag)
+const bodyGeo = new THREE.CapsuleGeometry(0.24, 0.6, 4, 12), headGeo = new THREE.SphereGeometry(0.19, 16, 12), legsGeo = new THREE.BoxGeometry(0.36, 0.55, 0.24);
+const armGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.6, 8), bowGeo = new THREE.TorusGeometry(0.62, 0.025, 6, 20, Math.PI * 0.8);
+/** Take an archer or arrow out of the scene and free what only it used (its color, its name tag). */
+function drop(obj) { scene.remove(obj); for (const o of obj.userData.own || []) o.dispose(); }
 /** An archer: body in its color, a head, a bow in the left hand, a name tag. */
 function makeArcher(color, name) {
   const g = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.6, 4, 12), mat); body.position.y = 1.0; body.castShadow = true;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 16, 12), skin); head.position.y = 1.62; head.castShadow = true;
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.55, 0.24), new THREE.MeshStandardMaterial({ color: "#3b4a6b" })); legs.position.y = 0.3;
+  const body = new THREE.Mesh(bodyGeo, mat); body.position.y = 1.0; body.castShadow = true;
+  const head = new THREE.Mesh(headGeo, skin); head.position.y = 1.62; head.castShadow = true;
+  const legs = new THREE.Mesh(legsGeo, legsMat); legs.position.y = 0.3;
   const arm = new THREE.Group(); arm.position.set(0.28, 1.35, 0); // the bow arm (left), raised toward the target to shoot
-  const armMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 8), mat); armMesh.position.y = -0.28; arm.add(armMesh);
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.025, 6, 20, Math.PI * 0.8), bowMat); bow.rotation.z = -Math.PI * 0.9; bow.position.set(0, 0.04, 0); arm.add(bow); // an arc bulging out past the hand
+  const armMesh = new THREE.Mesh(armGeo, mat); armMesh.position.y = -0.28; arm.add(armMesh);
+  const bow = new THREE.Mesh(bowGeo, bowMat); bow.rotation.z = -Math.PI * 0.9; bow.position.set(0, 0.04, 0); arm.add(bow); // an arc bulging out past the hand
   g.add(body, head, legs, arm);
-  if (name && !ATTRACT) { const tag = textSprite(name, "#fff", 256, 64, "bold 34px system-ui"); tag.position.y = 2.1; tag.scale.set(0.8, 0.2, 1); g.add(tag); }
-  g.userData = { arm, x: 0, z: 0, raise: 0 };
+  const own = [mat];
+  if (name && !ATTRACT) { const tag = textSprite(name, "#fff", 256, 64, "bold 34px system-ui"); tag.position.y = 2.1; tag.scale.set(0.8, 0.2, 1); g.add(tag); own.push(tag.material.map, tag.material); }
+  g.userData = { arm, x: 0, z: 0, raise: 0, own };
   scene.add(g); return g;
 }
 /** An arrow: shaft, tip and three feathers in the archer's color. Its origin is the tip; it points along -z. */
@@ -331,6 +340,7 @@ function makeArrow(color) {
   const g = new THREE.Group(), fm = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide });
   g.add(new THREE.Mesh(shaftGeo, shaftMat), new THREE.Mesh(tipGeo, tipMat));
   for (let k = 0; k < 3; k++) { const f = new THREE.Mesh(featherGeo, fm); f.rotation.z = (k * Math.PI * 2) / 3; g.add(f); }
+  g.userData.own = [fm];
   scene.add(g); return g;
 }
 const look = new THREE.Vector3(), q0 = new THREE.Quaternion(), FWD = new THREE.Vector3(0, 0, -1);
@@ -525,7 +535,7 @@ function hud(g) {
   if (g.phase === "done") showResults(g);
 }
 function showResults(g) {
-  const rows = ranked(g), top = rows[0], tie = rows.length > 1 && rows[1].t === top.t && rows[1].s.x === top.s.x;
+  const rows = ranked(g), top = rows[0], tie = rows.length > 1 && rows[1].t === top.t && tens(rows[1].s) === tens(top.s) && rows[1].s.x === top.s.x;
   $("overTitle").textContent = tie ? "It's a tie!" : top.s.id === net.sessionId ? "You win!" : `${top.s.n} wins!`;
   const R = CONFIG.distances.length, A = CONFIG.arrowsPerRound;
   $("table").innerHTML = `<tr><th>Archer</th>${CONFIG.distances.map((d) => `<th>${d}m</th>`).join("")}<th>X</th><th>Total</th></tr>` + rows.map((r) =>
@@ -601,13 +611,13 @@ function frame(now) {
     }
     // the arrows stuck in the target (rebuilt when the list changes)
     if (stuck.length !== g.hits.length || (stuck[0] && stuck[0].key !== `${g.id}:${g.round}`)) {
-      for (const a of stuck) scene.remove(a.mesh); stuck.length = 0;
+      for (const a of stuck) drop(a.mesh); stuck.length = 0;
       for (const [s, x, y] of g.hits) { const m = makeArrow(g.seats[s] ? seatColor(g.seats[s]) : "#ccc"); const p = arrowAt(d, x, y, 0, flightTime(d)); placeArrow(m, x, CONFIG.targetY + y, -d - 0.06, p.dx, p.dy, p.dz); stuck.push({ mesh: m, key: `${g.id}:${g.round}` }); }
     }
     // the arrow in flight: drawn from the shot in state, the same path for everyone
     if (g.shot) me.fired = null;
-    if (g.shot && (!flying || flying.n !== g.shot.n)) { if (flying) scene.remove(flying.mesh); flying = { n: g.shot.n, shot: g.shot, mesh: makeArrow(seatColor(g.seats[g.shot.s])), start: now, landed: false }; if (!ATTRACT) beep(900, 0.25, "sine", 0.05, 0.4); }
-    if (!g.shot && flying) { scene.remove(flying.mesh); flying = null; }
+    if (g.shot && (!flying || flying.n !== g.shot.n)) { if (flying) drop(flying.mesh); flying = { n: g.shot.n, shot: g.shot, mesh: makeArrow(seatColor(g.seats[g.shot.s])), start: now, landed: false }; if (!ATTRACT) beep(900, 0.25, "sine", 0.05, 0.4); }
+    if (!g.shot && flying) { drop(flying.mesh); flying = null; }
     let flightT = -1;
     if (flying) {
       const sh = flying.shot, T = flightTime(d), hitFace = Math.abs(sh.hx) < CONFIG.bossHalf && Math.abs(sh.hy) < CONFIG.bossHalf;
@@ -626,7 +636,7 @@ function frame(now) {
     }
     // archers: whoever is up stands at the line; everyone else waits behind it
     const ids = new Set(g.seats.map((s) => s.id));
-    for (const [id, a] of archers) if (!ids.has(id) || a.userData.color !== seatColor(g.seats.find((s) => s.id === id))) { scene.remove(a); archers.delete(id); }
+    for (const [id, a] of archers) if (!ids.has(id) || a.userData.color !== seatColor(g.seats.find((s) => s.id === id))) { drop(a); archers.delete(id); }
     let wait = 0;
     const shooter = g.shot ? g.shot.s : k;
     g.seats.forEach((s, i) => {

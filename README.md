@@ -6,7 +6,7 @@ Read the wind. Hit the gold. The target keeps moving back. A multiplayer starter
 
 ## How it plays
 
-Take turns shooting at one target, three arrows a round, while everyone watches through your sight. The wind changes every arrow and the target moves back every round, from 18 to 70 metres. Highest total wins.
+Take turns shooting at one target, three arrows a round, while everyone watches through your sight. The wind changes every arrow and the target moves back every round, from 18 to 70 metres. Highest total wins; a tie goes to the most 10s, then the most Xs.
 
 **Controls:** Press and hold to draw, drag to aim, let go to shoot (mouse or finger); or hold Space and use the arrow keys.
 
